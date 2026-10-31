@@ -1,0 +1,59 @@
+name: Sync Docker Images to Aliyun ACR
+
+on:
+  push:
+    paths:
+      - "docker-images"
+  schedule:
+    - cron: "0 0 */5 * *"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login in aliyun registry
+        run: docker login --username=${{ secrets.DOCKER_USERNAME }} --password=${{ secrets.DOCKER_PASSWORD }} registry.cn-hangzhou.aliyuncs.com
+
+      - name: Pull, retag and push images
+        run: |
+          set -euo pipefail
+
+          REGISTRY="registry.cn-hangzhou.aliyuncs.com"
+          NAMESPACE="xjdx"
+          FILE="docker-images"
+
+          # 逐行读取 docker-images，每行一个镜像地址
+          # || [ -n "$image" ]：兼容文件末尾无换行符时漏读最后一行
+          while IFS= read -r image || [ -n "$image" ]; do
+            # 跳过空行和 # 注释行
+            [ -z "$image" ] && continue
+            case "$image" in \#*) continue ;; esac
+
+            # 解析 tag：最后一个 / 之后含 : 即带 tag，否则默认 latest
+            base="${image##*/}"
+            if [[ "$base" == *:* ]]; then
+              name="${image%:*}"
+              tag="${image##*:}"
+            else
+              name="$image"
+              tag="latest"
+            fi
+
+            # 去掉原始 registry 前缀（docker.io/、ghcr.io/、localhost:5000/ 等）
+            first="${name%%/*}"
+            if [[ "$first" == *.* || "$first" == *:* || "$first" == "localhost" ]]; then
+              name="${name#*/}"
+            fi
+
+            # 阿里云 ACR 仓库名为单层，把剩余的 / 展平为 _
+            target="${REGISTRY}/${NAMESPACE}/${name//\//_}:${tag}"
+
+            echo ">>> $image  ->  $target"
+            docker pull "$image"
+            docker tag "$image" "$target"
+            docker push "$target"
+          done < "$FILE"
