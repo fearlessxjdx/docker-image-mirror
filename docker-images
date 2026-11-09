@@ -1,3 +1,4 @@
 ghcr.io/mhsanaei/3x-ui
 gogs/gogs:next-0.14
 mariadb:13-ubi
+ghcr.io/red5d/docker-autocompose
